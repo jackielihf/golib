@@ -11,6 +11,6 @@ go get github.com/jackielihf/golib
 ## package web
 
 
-# version history
-v0.1.1 add jwt singleton, unless
-v0.1.0 add golib/web/router, cors, usertrack
+# History
+* v0.1.1 add jwt singleton, unless
+* v0.1.0 add golib/web/router, cors, usertrack
