@@ -6,10 +6,10 @@ import "github.com/gin-gonic/gin"
 import "fmt"
 import "strings"
 
-// gin.HandlerFunc 别名
+// gin.HandlerFunc 
 type ApiHandlers []gin.HandlerFunc 
 
-// Api 数据结构
+// Api struct
 type Api struct {
     Method string
     Path string
@@ -17,7 +17,7 @@ type Api struct {
 }
 
 
-// 创建API路由
+// create api routes
 func CreateApi(router *gin.Engine, config []Api) *gin.Engine{
     for _, api := range config {    
         Method := strings.ToUpper(api.Method)
@@ -44,8 +44,8 @@ func CreateApi(router *gin.Engine, config []Api) *gin.Engine{
     return router
 }
 
-// 创建API路由Group
-// @param prefix [string] api路径的前缀
+// create api Group
+// @param prefix [string] api prefix
 func CreateGroup(router *gin.Engine, prefix string, config []Api) *gin.Engine{
     group := router.Group(prefix)
     for _, api := range config {    
