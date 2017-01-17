@@ -1,7 +1,5 @@
 // json web token
 
-
-
 package web
 
 import "os"
@@ -9,6 +7,7 @@ import "time"
 import "strconv"
 import "errors"
 import "sync"
+import "encoding/json"
 
 import "github.com/gin-gonic/gin"
 import "github.com/dgrijalva/jwt-go"
@@ -16,7 +15,7 @@ import "github.com/google/uuid"
 
 // cookie key name
 const JWT_COOKIE_KEY string = "JWT_TOKEN"
-const JWT_OBJ_KEY string = "user_context"
+const JWT_OBJ_KEY string = "user_ctx"
 // singleton
 var instance *Jwt
 var once sync.Once
@@ -35,12 +34,15 @@ func JwtMiddleWare() gin.HandlerFunc{
 }
 
 // sign and set cookie
-func JwtSetCookie(c *gin.Context, payload string) {
-    if payload != "" {
-        obj := getInstance()
-        if token, err := obj.sign(payload); err == nil {
-            c.SetCookie(JWT_COOKIE_KEY, token, obj.Expire, "", obj.Domain, false, false)            
-        } 
+func JwtSetCookie(c *gin.Context, v interface{}) {
+    if bytes, err := json.Marshal(v); err == nil {
+        payload := string(bytes)
+        if payload != "" {
+            obj := getInstance()
+            if token, err := obj.sign(payload); err == nil {
+                c.SetCookie(JWT_COOKIE_KEY, token, obj.Expire, "", obj.Domain, false, false)            
+            } 
+        }
     }
 }
 
@@ -49,9 +51,21 @@ func JwtClearCookie(c *gin.Context) {
     c.SetCookie(JWT_COOKIE_KEY, "", 0, "", "", false, false)    
 }
 
+// read string from cookie, and parse it for user context which stored in v
+func JwtUserCtx(c *gin.Context, v interface{}) error {
+    //read string
+    if jsonString := c.Request.Header.Get(JWT_OBJ_KEY); jsonString != "" {
+        if err := json.Unmarshal([]byte(jsonString), v); err != nil {
+            return err
+        }
+    }else{
+        return errors.New(JWT_OBJ_KEY + " not exists")    
+    }
+    return nil
+}
 
 
-// Jwt 类
+// Jwt 
 type Jwt struct {
     Secret string
     Domain string
@@ -62,7 +76,7 @@ type Jwt struct {
 func (obj *Jwt) Init() {
     //secret
     if obj.Secret == "" {
-        obj.Secret = os.Getenv("JWT_SECRET")    
+        obj.Secret = os.Getenv("jwt_secret")    
     }
     if obj.Secret == "" {
         obj.Secret = uuid.New().String()
@@ -70,22 +84,24 @@ func (obj *Jwt) Init() {
     obj.secretBytes = []byte(obj.Secret)
     //domain
     if obj.Domain == "" {
-        obj.Domain = os.Getenv("JWT_DOMAIN")
+        obj.Domain = os.Getenv("jwt_domain")
     }
     //expire    
     if obj.Expire < 1 {
-        obj.Expire, _ = strconv.Atoi(os.Getenv("JWT_EXPIRE"))
+        obj.Expire, _ = strconv.Atoi(os.Getenv("jwt_expire"))
     }
     if obj.Expire < 1 {
         obj.Expire = 60 * 60 * 24  // 1 day   
     }
 }
 
+// middleware. parse and validate the JWT token
 func (obj *Jwt) Ware(c *gin.Context) {
     // get token
     if token, err := c.Cookie(JWT_COOKIE_KEY); err == nil && token != "" {
-        if json, err := obj.validate(token); err == nil {
-            c.Set(JWT_OBJ_KEY, json)
+        if jsonString, err := obj.validate(token); err == nil {
+            // jwt token stored in request's header
+            c.Request.Header.Set(JWT_OBJ_KEY, jsonString)
             c.Next()    
             return
         }                
