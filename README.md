@@ -2,6 +2,20 @@
 Some common, handy tools in Go language. 
 You can easily build up your web applications(based on [gin](https://github.com/gin-gonic/gin)) by using these tools.
 
+Toolbox:
+* web api router based on gin
+* pluggable logger
+* statsd client
+**middleware**
+* JWT
+* cors
+* logger (log http request)
+* statsd (counting for http request)
+* unless (for skipping handler)
+* usertrack
+* respond 
+
+
 ## Current version
 v0.1.2
 
@@ -218,6 +232,7 @@ r.Use(web.UserTrack)
 
 
 # History
+* v0.2.0 add example
 * v0.1.2 add logger, statsd, respond
 * v0.1.1 add jwt singleton, unless
 * v0.1.0 add golib/web/router, cors, usertrack
