@@ -18,7 +18,7 @@ Toolbox:
 
 
 ## Current version
-v0.1.2
+v1.0.0
 
 ## Installation
 go get github.com/jackielihf/golib
@@ -233,6 +233,7 @@ r.Use(web.UserTrack)
 
 
 # History
+* v1.0.0 publish
 * v0.2.0 add example
 * v0.1.2 add logger, statsd, respond
 * v0.1.1 add jwt singleton, unless
