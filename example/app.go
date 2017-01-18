@@ -22,8 +22,8 @@ func main() {
     })
 
     // middleware
-    r.Use(web.Cors)
-    r.Use(web.UserTrack)
+    r.Use(web.Cors())
+    r.Use(web.UserTrack())
     r.Use(web.Logger())
     r.Use(web.Unless("/login").Then(web.JwtMiddleWare()))
     
