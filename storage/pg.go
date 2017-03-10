@@ -6,7 +6,6 @@ import (
     _ "github.com/lib/pq"
     "github.com/robfig/cron"
     "strings"
-    // "reflect"
     "errors"
 )
 
@@ -89,18 +88,31 @@ func (that *PgClient) Close() {
 // tools
 // sql builder
 // build insert sql
-func (that *PgClient) BuildInsertSql(table string, fields string, returning string) string{
-    n := strings.Count(fields, ",") + 1
+func (that *PgClient) BuildInsertSql(table string, fields []string, returning string) string{
+    n := len(fields)
     placeholders := make([]string, n)
-    for i := 1; i <= n; i++ {
-        placeholders[i-1] = fmt.Sprintf("$%d", i)
+    for i := 0; i < n; i++ {
+        placeholders[i] = fmt.Sprintf("$%d", i+1)
     }
-    sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, fields, strings.Join(placeholders, ","))
+    sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, strings.Join(fields, ","), strings.Join(placeholders, ","))
     if returning != "" {
         sql += fmt.Sprintf(" returning %s", returning)
     }
     return sql
 }
+
+// func (that *PgClient) BuildInsertSql2(table string, fields string, returning string) string{
+//     n := strings.Count(fields, ",") + 1
+//     placeholders := make([]string, n)
+//     for i := 1; i <= n; i++ {
+//         placeholders[i-1] = fmt.Sprintf("$%d", i)
+//     }
+//     sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, fields, strings.Join(placeholders, ","))
+//     if returning != "" {
+//         sql += fmt.Sprintf(" returning %s", returning)
+//     }
+//     return sql
+// }
 
 // build update sql
 // where clauses:  find placeholder "?", then replace it with $n
@@ -161,9 +173,14 @@ func (that *PgClient) QueryRow(sql string, values ...interface{}) (*sql.Row, err
 }
 
 // insert
-// @params
-func (that *PgClient) Insert(table string, fields string, returning string, src interface{}, values ...interface{}) (error){
-    sql := that.BuildInsertSql(table, fields, returning)
+func (that *PgClient) Insert(table string, fields map[string]interface{}, returning string, src interface{}) (error){
+    var keys []string
+    var values []interface{}
+    for key, value := range fields {
+        keys = append(keys, key)
+        values = append(values, value)
+    }
+    sql := that.BuildInsertSql(table, keys, returning)
     if stmt, err := that.Db.Prepare(sql); err == nil {
         defer stmt.Close()  // close when this function returns
         row := stmt.QueryRow(values...)
@@ -175,7 +192,6 @@ func (that *PgClient) Insert(table string, fields string, returning string, src 
         return err
     }
 }
-
 
 type RowPage struct {
     Total int64
