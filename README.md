@@ -100,8 +100,8 @@ func main() {
     config := GetApiConfig()
     web.CreateApi(r, config)  // create api routes
 
-    config2 := GetApiGroupConfig()
-    web.CreateGroup(r, "/api", config2) // create an api route group, with prefix '/api'
+    //config2 := GetApiGroupConfig()
+    //web.CreateGroup(r, "/api", config2) // create an api route group, with prefix '/api'
     
     // listen
     r.Run(":8080")
@@ -220,7 +220,7 @@ Support Cors cross domain.
 ```
 ...
 // middleware
-r.Use(web.Cors)
+r.Use(web.Cors())
 ```
 ### usertrack (middleware)
 
@@ -228,7 +228,7 @@ Generate an uuid for every client. It is useful for counting PV, UV.
 
 ```
 ...
-r.Use(web.UserTrack)
+r.Use(web.UserTrack())
 ```
 
 
