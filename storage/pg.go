@@ -21,6 +21,8 @@ type PgClient struct {
     sched *cron.Cron
 }
 
+// to do: sql cache
+
 func (that *PgClient) init() {
     that.formatConnStr()
 }
@@ -101,18 +103,6 @@ func (that *PgClient) BuildInsertSql(table string, fields []string, returning st
     return sql
 }
 
-// func (that *PgClient) BuildInsertSql2(table string, fields string, returning string) string{
-//     n := strings.Count(fields, ",") + 1
-//     placeholders := make([]string, n)
-//     for i := 1; i <= n; i++ {
-//         placeholders[i-1] = fmt.Sprintf("$%d", i)
-//     }
-//     sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, fields, strings.Join(placeholders, ","))
-//     if returning != "" {
-//         sql += fmt.Sprintf(" returning %s", returning)
-//     }
-//     return sql
-// }
 
 // build update sql
 // where clauses:  find placeholder "?", then replace it with $n
@@ -190,6 +180,30 @@ func (that *PgClient) Insert(table string, fields map[string]interface{}, return
         return nil
     }else{
         return err
+    }
+}
+
+// update
+func (that *PgClient) Update(table string, fields map[string]interface{}, where string, vars ...interface{}) (int64, error){
+    var keys []string
+    var values []interface{}
+    for key, value := range fields {
+        keys = append(keys, key)
+        values = append(values, value)
+    }
+    for _, value := range vars {
+        values = append(values, value)
+    }
+    sql := that.BuildUpdateSql(table, keys, where, "")
+    if stmt, err := that.Db.Prepare(sql); err == nil {
+        defer stmt.Close()  // close when this function returns
+        if res, err2 := stmt.Exec(values...); err2 != nil {
+            return 0, err2
+        }else{
+            return res.RowsAffected()
+        }
+    }else{
+        return 0, err
     }
 }
 
