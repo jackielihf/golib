@@ -6,7 +6,7 @@ import (
     _ "github.com/lib/pq"
     "github.com/robfig/cron"
     "strings"
-    "errors"
+    // "errors"
 )
 
 // postgresql client
@@ -19,12 +19,14 @@ type PgClient struct {
     Db *sql.DB
     ConnStr string
     sched *cron.Cron
+    available bool  // 是否可用
 }
 
 // to do: sql cache
 
 func (that *PgClient) init() {
     that.formatConnStr()
+    that.available = false
 }
 
 func (that *PgClient) formatConnStr() {
@@ -53,17 +55,21 @@ func (that *PgClient) connect() {
 }
 
 func (that *PgClient) check() error{
-    // fmt.Println("check")
-    if err := that.Db.Ping(); err == nil {
-        // exec a simple query
-        if rows, err2 := that.Db.Query("select 1"); rows != nil && err2 == nil {
-            defer rows.Close()
-            return nil    
-        }else{
-            return err2
-        }    
+    if err := that.Db.Ping(); err != nil {
+        that.available = false
+        return err
+    }
+    // exec a simple query
+    if rows, err2 := that.Db.Query("select 1"); rows != nil && err2 == nil { // ok
+        if !that.available {
+            fmt.Println("connected db: " + that.ConnStr)
+            that.available = true
+        }
+        defer rows.Close()
+        return nil    
     }else{
-        return err    
+        that.available = false
+        return err2
     }
 }
 
@@ -238,16 +244,17 @@ func (that *PgClient) SelectPage(sql string, page int, limit int, values ...inte
 }
 
 // 查询一个结果，存放到src中
-func (that *PgClient) SelectOne(sql string, src FieldMapping, values ...interface{}) error{
+func (that *PgClient) SelectOne(sql string, src FieldMapping, values ...interface{}) (int, error) {
     if rows, err := that.Query(sql, values...); err == nil {
         defer rows.Close()
         // 扫描一次
         if rows.Next() {
-            return that.FieldScan(rows, src)    
+            return 1, that.FieldScan(rows, src)    
         }
-        return errors.New("no available row")
+        // no available row
+        return 0, nil
     }else{
-        return err
+        return 0, err
     }
 }
 
