@@ -6,7 +6,8 @@ import (
     _ "github.com/lib/pq"
     "github.com/robfig/cron"
     "strings"
-    // "errors"
+    "errors"
+    "github.com/jackielihf/golib/log"
 )
 
 // postgresql client
@@ -41,16 +42,16 @@ func (that *PgClient) Open() {
     that.init()
     that.connect()
     if err := that.check(); err != nil {
-        fmt.Println(err)
+        log.Errorf("%v", err)
     }
     that.heartbeating()
 }
 
 func (that *PgClient) connect() {
-    fmt.Println("connecting db: " + that.ConnStr)
+    log.Info("connecting db: " + that.ConnStr)
     var err error
     if that.Db, err = sql.Open("postgres", that.ConnStr); err != nil {
-        fmt.Println(err)
+        log.Errorf("%v", err)
     }
 }
 
@@ -62,7 +63,7 @@ func (that *PgClient) check() error{
     // exec a simple query
     if rows, err2 := that.Db.Query("select 1"); rows != nil && err2 == nil { // ok
         if !that.available {
-            fmt.Println("connected db: " + that.ConnStr)
+            log.Info("connected db: " + that.ConnStr)
             that.available = true
         }
         defer rows.Close()
@@ -78,7 +79,7 @@ func (that *PgClient) heartbeating() {
     that.sched = cron.New()
     that.sched.AddFunc("@every 5s", func(){
         if err := that.check(); err != nil {
-            fmt.Println(err)
+            log.Warnf("%v", err)
             tempDb := that.Db
             that.connect()
             tempDb.Close()        
@@ -220,8 +221,13 @@ type RowPage struct {
     Rows *sql.Rows    
 }
 
+type PageInfo struct {
+    Total int64
+    Page int
+    Limit int
+}
 
-func (that *PgClient) SelectPage(sql string, page int, limit int, values ...interface{}) (*RowPage, error){
+func (that *PgClient) SelectRowPage(sql string, page int, limit int, values ...interface{}) (*RowPage, error){
     resultPage := RowPage{0, page, limit, nil}
     // count
     countSql := fmt.Sprintf("select count(1) as total from (%s) _alias", sql)
@@ -240,6 +246,31 @@ func (that *PgClient) SelectPage(sql string, page int, limit int, values ...inte
         return &resultPage, nil
     }else{
         return nil, err3
+    }
+}
+
+func (that *PgClient) SelectPage(sql string, page int, limit int, doMapping func()(interface{}, map[string]interface {}), values ...interface{}) (PageInfo, []interface{}, error){
+    pageInfo := PageInfo{0, page, limit}
+    // count
+    countSql := fmt.Sprintf("select count(1) as total from (%s) _alias", sql)
+    if row, err := that.QueryRow(countSql, values...); err != nil {
+        return pageInfo, nil, err
+    }else{
+        if err2 := row.Scan(&pageInfo.Total); err2 != nil {
+            return pageInfo, nil, err2
+        }
+    }
+    // get page
+    offset := (page - 1) * limit
+    pageSql := fmt.Sprintf("%s limit %d offset %d", sql, limit, offset)
+    if rows, err3 := that.Query(pageSql, values...); err3 != nil {
+        return pageInfo, nil, err3
+    }else{
+        if result, err4 := that.ListScan(rows, doMapping); err4 != nil {
+            return pageInfo, nil, err4  
+        }else{
+            return pageInfo, result, nil    
+        }
     }
 }
 
@@ -334,20 +365,24 @@ func (that *PgClient) FieldScan(rows *sql.Rows, fieldAddr FieldMapping) (error){
 }
 
 // list scan
-// func (that *PgClient) ListScan(rows *sql.Rows, list []interface{}, doMapping func()(interface{}, FieldMapping)) error{
-//     for rows.Next() {
-//         ptr, mapping := doMapping()
-//         if mapping == nil {
-//             return errors.New("mapping is nil")
-//         }
-//         if err := that.FieldScan(rows, mapping); err != nil {
-//             return err
-//         }else{
-//             list = append(list, ptr)
-//         }
-//     }
-//     return nil
-// }
+// 扫描rows，根据字段映射，获取对象列表
+func (that *PgClient) ListScan(rows *sql.Rows, doMapping func()(interface{}, map[string]interface {})) ([]interface{}, error) {
+    var list []interface{}
+    if rows == nil {
+        return list, nil
+    }
+    for rows.Next() {
+        ptr, mapping := doMapping()
+        if ptr == nil || mapping == nil {
+            return list, errors.New("ListScan err: ptr or mapping is nil")
+        }
+        if err := that.FieldScan(rows, mapping); err != nil {
+            return list, err
+        }
+        list = append(list, ptr)
+    }
+    return list, nil
+}
 
 
 
