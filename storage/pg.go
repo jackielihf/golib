@@ -223,8 +223,8 @@ type RowPage struct {
 
 type PageInfo struct {
     Total int64
-    Page int
-    Limit int
+    Page int64
+    Limit int64
 }
 
 func (that *PgClient) SelectRowPage(sql string, page int, limit int, values ...interface{}) (*RowPage, error){
@@ -249,7 +249,7 @@ func (that *PgClient) SelectRowPage(sql string, page int, limit int, values ...i
     }
 }
 
-func (that *PgClient) SelectPage(sql string, page int, limit int, doMapping func()(interface{}, map[string]interface {}), values ...interface{}) (PageInfo, []interface{}, error){
+func (that *PgClient) SelectPage(sql string, page int64, limit int64, doMapping func()(interface{}, map[string]interface {}), values ...interface{}) (PageInfo, []interface{}, error){
     pageInfo := PageInfo{0, page, limit}
     // count
     countSql := fmt.Sprintf("select count(1) as total from (%s) _alias", sql)
