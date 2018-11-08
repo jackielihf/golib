@@ -1,0 +1,259 @@
+
+package worker
+
+import (
+    "fmt"
+    "errors"
+    "sync"
+    "sync/atomic"
+    // "time"
+)
+
+
+var (
+    ErrJobTimeout = errors.New("Job handling timeout")
+    ErrWorkerClosed = errors.New("Workder already closed")
+    ErrBufferFull = errors.New("Buffer full, request dropped")
+    ErrResultChanClosed = errors.New("unexpected: resultChan closed")
+    ErrPoolClosed = errors.New("pool closed")
+)
+
+type Handler interface {
+
+    Handle(interface{}) interface{} // 处理函数
+}
+
+type WorkItem struct {
+    payload interface{}
+    resultChan chan interface{}
+}
+
+func NewWorkItem(payload interface{}) *WorkItem {
+    item := &WorkItem{
+        payload: payload,
+        resultChan: make(chan interface{}),
+    }
+    return item
+}
+
+func(wi *WorkItem) release(){
+    // fmt.Println("release item")
+    wi.payload = nil
+    close(wi.resultChan)
+}
+
+type Worker struct {
+    id string
+    pool *Pool
+    handler Handler
+    itemChan chan *WorkItem
+
+    interrupt chan bool
+    quit chan bool
+}
+
+func NewWorker(id string, pool *Pool, handler Handler) *Worker{
+
+    wk := &Worker{
+        id: id,
+        pool: pool,
+        handler: handler,
+        itemChan: make(chan *WorkItem),
+        interrupt: make(chan bool),
+        quit: make(chan bool),
+    }
+    return wk
+}
+
+func(w *Worker) Accept(item *WorkItem){
+    w.itemChan <- item
+}
+
+func(w *Worker) run(){
+
+    defer func() {
+        close(w.interrupt)
+        close(w.itemChan)
+        fmt.Printf("worker[%s] quit\n", w.id)
+    }()
+
+    fmt.Printf("worker[%s] start running\n", w.id)
+    
+    for {
+        // 将空闲worker加入pool
+        select {
+        case <- w.quit:
+            return
+        case w.pool.workerChan <- w:
+
+        }
+        // 取数据，处理数据，返回结果
+        select {
+        case item := <- w.itemChan:
+            if item == nil {
+                continue
+            }
+            output := w.handler.Handle(item.payload)
+            fmt.Printf("worker %s, input: %v, output: %v\n", w.id, item.payload, output)
+            select {
+            case item.resultChan <- output:
+            case <-w.interrupt:
+            }
+        case <-w.interrupt:
+        case <-w.quit:
+            return
+        }
+    }
+}
+
+func(w *Worker) stop(){
+    close(w.quit)
+}
+
+
+
+type Pool struct {
+
+    workers []*Worker 
+    workerChan chan *Worker
+    queue chan *WorkItem
+    quit chan bool
+
+    poolSize int
+    queueSize int64 // queue的实时大小
+    bufferSize int64 // queue buffer大小
+    maxQueueSize int64
+    mtx sync.Mutex
+}
+
+func NewPool(poolSize int, builder func() Handler) *Pool {
+
+    if poolSize < 1 {
+        poolSize = 1
+    }
+
+    bufferSize := int64(poolSize * 1000)
+
+    pool := &Pool{
+        workers: make([]*Worker, poolSize),
+        workerChan: make(chan *Worker, poolSize),
+        queue: make(chan *WorkItem, bufferSize),
+        quit: make(chan bool),
+        poolSize: poolSize,
+        queueSize: 0,
+        bufferSize: bufferSize,
+        maxQueueSize: bufferSize,
+    }
+
+    for i := 0; i < pool.poolSize; i ++ {
+        id := fmt.Sprintf("%d", i)
+        pool.workers[i] = NewWorker(id, pool, builder())
+    }
+
+    fmt.Printf("Pool created: poolSize=%d\n", pool.poolSize)
+    return pool
+}
+
+func(p *Pool) WithMaxQueueSize(size int64) *Pool {
+    p.mtx.Lock()
+    defer p.mtx.Unlock()
+    if size < p.bufferSize {
+        size = p.bufferSize
+    }
+    p.maxQueueSize = size
+    return p
+}
+
+func(p *Pool) Start() *Pool {
+    p.mtx.Lock()
+    defer p.mtx.Unlock()
+
+    for i := 0; i < p.poolSize; i++ {
+        wk := p.workers[i]
+        fmt.Printf("run worker[%s]\n", p.workers[i].id)
+        go wk.run()
+    }
+    p.dispatch()
+    return p
+}
+
+func(p *Pool) Close() {
+    p.mtx.Lock()
+    defer p.mtx.Unlock()
+
+    for i := 0; i < p.poolSize; i++ {
+        p.workers[i].stop()
+    }
+    close(p.quit)
+    // close(p.queue)
+    // close(p.workerChan)
+    p.poolSize = 0
+}
+
+func(p *Pool) dispatch() {
+
+    go func(){
+        for {
+            select {
+            case <-p.quit:
+                return
+            case item := <- p.queue:
+                atomic.AddInt64(&p.queueSize, -1)
+                select {
+                case <-p.quit:
+                    return
+                case worker := <-p.workerChan: // 从worker池取一个空闲worker
+                    worker.Accept(item)
+                }
+            }
+        }
+    }()
+}
+
+func(p *Pool) enqueue(item *WorkItem) error {
+
+    // 超出最大队列大小, 丢掉请求
+    if p.QueueSize() > p.maxQueueSize {
+        return ErrBufferFull
+    }
+
+    select {
+    case <-p.quit:
+        return ErrPoolClosed
+    case p.queue <- item:
+        atomic.AddInt64(&p.queueSize, 1)
+    
+    }
+    return nil
+}
+
+func(p *Pool) Process(payload interface{}) (interface{}, error) {
+
+    item := NewWorkItem(payload)
+    defer func(){
+        if item != nil {
+            item.release()
+        }
+    }()
+
+    fmt.Println("before enqueue")
+
+    if err := p.enqueue(item); err != nil {
+        return nil, err
+    }
+
+    result, open := <- item.resultChan
+
+    if !open {
+        return nil, ErrResultChanClosed
+    }
+    return result, nil
+}
+
+func(p *Pool) QueueSize() int64 {
+    return atomic.LoadInt64(&p.queueSize)
+}
+
+
+
+

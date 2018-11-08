@@ -25,8 +25,7 @@ type MyFormatter struct {
 func (f *MyFormatter) Format(entry *logrus.Entry) ([]byte, error) {
     var b *bytes.Buffer = new(bytes.Buffer)
     // format
-    timestampFormat := logrus.DefaultTimestampFormat
-    b.WriteString(entry.Time.Format(timestampFormat))
+    b.WriteString(entry.Time.String())
     b.WriteString(" [")
     b.WriteString(entry.Level.String())
     b.WriteString("] ")
@@ -70,6 +69,8 @@ func Init(){
         }
         logger.Hooks.Add(lfshook.NewHook(lfshook.PathMap{
             logrus.InfoLevel: logDir + "/info.log",
+            logrus.WarnLevel: logDir + "/warn.log",
+            logrus.ErrorLevel : logDir + "/error.log",
         }))
     }
     // syslog

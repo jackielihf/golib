@@ -7,6 +7,7 @@ import (
     "github.com/robfig/cron"
     "strings"
     "errors"
+    "bytes"
     "github.com/jackielihf/golib/log"
 )
 
@@ -110,6 +111,19 @@ func (that *PgClient) BuildInsertSql(table string, fields []string, returning st
     return sql
 }
 
+func replaceQuestion(clause string, start int) string {
+    var sb bytes.Buffer
+    index := start
+    for _, char := range clause {
+        if char == '?' {
+            sb.WriteString(fmt.Sprintf("$%d", index))
+            index ++
+        }else{
+            sb.WriteRune(char)
+        }
+    }
+    return sb.String()
+}
 
 // build update sql
 // where clauses:  find placeholder "?", then replace it with $n
@@ -118,13 +132,8 @@ func (that *PgClient) BuildUpdateSql(table string, fields []string, where string
     for i, c := range fields {
         fields[i] = fmt.Sprintf("%s=$%d", c, i + 1)
     }
-    where += " " // add a blank
-    clauses := strings.Split(where, "?")
-    m := len(clauses)
-    for i := 0; i < m-1; i++ {
-        clauses[i] = fmt.Sprintf("%s$%d", clauses[i], n+i+1)
-    }
-    sql := fmt.Sprintf("UPDATE %s SET %s WHERE %s", table, strings.Join(fields,","), strings.Join(clauses, ""))
+    whereClause := replaceQuestion(where, n + 1)
+    sql := fmt.Sprintf("UPDATE %s SET %s WHERE %s", table, strings.Join(fields,","), whereClause)
     if returning != "" {
         sql += fmt.Sprintf(" returning %s", returning)
     }
@@ -133,13 +142,7 @@ func (that *PgClient) BuildUpdateSql(table string, fields []string, where string
 
 // build sql
 func (that *PgClient) BuildSql(sql string) string{
-    sql += " " // add a blank
-    strs := strings.Split(sql, "?")
-    n := len(strs)
-    for i := 0; i < n-1; i++ {
-        strs[i] = fmt.Sprintf("%s$%d", strs[i], i+1)
-    }
-    return strings.Join(strs, "")
+    return replaceQuestion(sql, 1)
 }
 
 // sql command
@@ -259,6 +262,10 @@ func (that *PgClient) SelectPage(sql string, page int64, limit int64, doMapping 
         if err2 := row.Scan(&pageInfo.Total); err2 != nil {
             return pageInfo, nil, err2
         }
+    }
+    // no result
+    if pageInfo.Total == 0 {
+        return pageInfo, nil, nil
     }
     // get page
     offset := (page - 1) * limit
